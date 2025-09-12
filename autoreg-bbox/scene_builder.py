@@ -339,6 +339,94 @@ def add_bbox3d_corner_points(scene, corner_points, thickness=0.001, colors=("red
 
 
 
+import numpy as np
+import plotly.graph_objects as go
+from typing import Tuple
+
+class SceneBuilderP:
+    def __init__(self, fig: go.Figure, flip_xz: bool):
+        self.fig = fig
+        self.flip_xz = flip_xz
+
+    @classmethod
+    def from_point_map(
+        cls,
+        xyz: np.ndarray,
+        rgb: np.ndarray,
+        size: float = 2,
+        flip_xz: bool = True,
+        render_size: Tuple[int, int] = (800, 600),
+    ) -> "SceneBuilder":
+        # Ensure HWC format
+        xyz = np.asarray(xyz)
+        rgb = np.asarray(rgb)
+
+        if flip_xz:
+            xyz = xyz * [-1, 1, -1]
+
+        # Normalize colors
+        if rgb.dtype != np.uint8:
+            rgb = (255 * rgb).astype(np.uint8)
+
+        colors = [
+            f"rgb({r},{g},{b})" for r, g, b in rgb.reshape(-1, 3)
+        ]
+
+        # Create 3D scatter plot for point cloud
+        fig = go.Figure(
+            data=[
+                go.Scatter3d(
+                    x=xyz[..., 0].ravel(),
+                    y=xyz[..., 1].ravel(),
+                    z=xyz[..., 2].ravel(),
+                    mode="markers",
+                    marker=dict(size=size, color=colors, opacity=0.8),
+                )
+            ]
+        )
+
+        fig.update_layout(
+            scene=dict(
+                xaxis=dict(visible=True),
+                yaxis=dict(visible=True),
+                zaxis=dict(visible=True),
+            ),
+            width=render_size[0],
+            height=render_size[1],
+        )
+
+        return cls(fig=fig, flip_xz=flip_xz)
+
+    def add_bbox3d_batch(self, bboxes, colors=("red", "green", "blue")):
+        """bboxes: BatchBBox3D object with .centers, .sizes, .rotmats"""
+        for i, corner_points in enumerate(get_batch_bbox3ds_corners(bboxes)):
+            corner_points = corner_points.cpu().numpy()
+            if self.flip_xz:
+                corner_points = corner_points * [-1, 1, -1]
+
+            # Define edges of a cube (12 lines)
+            edges = [
+                (0, 1), (1, 2), (2, 3), (3, 0),  # bottom square
+                (4, 5), (5, 6), (6, 7), (7, 4),  # top square
+                (0, 4), (1, 5), (2, 6), (3, 7),  # verticals
+            ]
+
+            color = colors[i % len(colors)]
+            for e1, e2 in edges:
+                self.fig.add_trace(
+                    go.Scatter3d(
+                        x=[corner_points[e1, 0], corner_points[e2, 0]],
+                        y=[corner_points[e1, 1], corner_points[e2, 1]],
+                        z=[corner_points[e1, 2], corner_points[e2, 2]],
+                        mode="lines",
+                        line=dict(color=color, width=5),
+                        showlegend=False,
+                    )
+                )
+        return self
+
+    def show(self):
+        self.fig.show()
 
 class SceneBuilder:
 
